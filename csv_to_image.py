@@ -37,6 +37,7 @@ def get_minimum(df):
     return df[df > 0].min(numeric_only=True).min()
 
 def df_to_image(df, image_path, minimum=None, maximum=None):
+    print('min={}, max={}'.format(minimum, maximum))
     minimum = minimum if minimum is not None else get_minimum(df)
     df = convert_to_diff(df, minimum=minimum)
     if maximum is not None:
@@ -44,10 +45,31 @@ def df_to_image(df, image_path, minimum=None, maximum=None):
         maximum -= minimum
     else:
         maximum = df.max().max()
-    log.info('Writing image to {} with maximum as {}'.format(image_path, maximum))
+    log.info('Writing image to {} while splitting the color range between (0, {})'.format(image_path, maximum))
     imsave(image_path, df, cmap=COLOR_MAP, vmin=0, vmax=maximum)
 
-def imagizer(file_path, image_path, chunk_size=None, minimum=None):
+def get_chunks_minmax(df_chunks, minimum=None, maximum=None):
+    """
+    Calculated the min/max values if wasn't given them.
+    Will "useup" the df_chunks iterator if the calculation where necessary
+    """
+    if minimum is not None and maximum is not None:
+        return minimum, maximum
+    cacl_min, cacl_max = False, False
+    if minimum is None:
+        minimum = sys.maxsize
+        cacl_min = True
+    if maximum is None:
+        maximum = 0
+        cacl_max = True
+    for chunk in df_chunks:
+        if cacl_min:
+            minimum = min(minimum, get_minimum(chunk))
+        if cacl_max:
+            maximum = max(maximum, chunk.max().max())
+    return minimum, maximum
+
+def imagizer(file_path, image_path, chunk_size=None, minimum=None, maximum=None):
     """
     Turns a csv file into an image or multiple images
     """
@@ -55,18 +77,9 @@ def imagizer(file_path, image_path, chunk_size=None, minimum=None):
     if minimum is not None:
         log.info('Forced minimum value {}'.format(minimum))
     if chunk_size is None:
-        df_to_image(df, image_path, minimum=minimum)
+        df_to_image(df, image_path, minimum=minimum, maximum=maximum)
     else:
-        if minimum is None:
-            minimum = sys.maxsize
-            cacl_min = True
-        else:
-            cacl_min = False
-        maximum = 0
-        for chunk in df:
-            if cacl_min:
-                minimum = min(minimum, get_minimum(chunk))
-            maximum = max(maximum, chunk.max().max())
+        minimum, maximum = get_chunks_minmax(df, minimum=minimum, maximum=maximum)
         log.info('Minimum value is {} and maximum is {}'.format(minimum, maximum))
         df = read_csv(file_path, chunk_size)
         for i, chunk in enumerate(df):
@@ -94,7 +107,7 @@ def main(args):
     init_logging(args.log_path)
     file_path = args.file_path
     image_path = args.image_path if args.image_path else file_path.parent / (file_path.stem + '.png')
-    imagizer(file_path, image_path, chunk_size=args.chunk_size, minimum=args.minimum)
+    imagizer(file_path, image_path, chunk_size=args.chunk_size, minimum=args.minimum, maximum=args.maximum)
 
 
 if __name__ == '__main__':
@@ -103,6 +116,7 @@ if __name__ == '__main__':
     parser.add_argument('--image-path', '-o', type=Path, help='An optional path to the resulting image. If omitted will generate a path from the input path with a different suffix')
     parser.add_argument('--chunk-size', '-c', type=int, help='Separate the resulting image to chunks')
     parser.add_argument('--minimum', '-m', type=int, help='Set a hard minimum value and zero all values below it')
+    parser.add_argument('--maximum', '-x', type=int, help='Set a hard maximum value and flatten all values above it to itself')
     parser.add_argument('--log-path', '-l', type=Path, help='Save the log to a file instead of stdout')
     try:
         args = parser.parse_args()
