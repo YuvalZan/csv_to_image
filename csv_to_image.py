@@ -35,6 +35,7 @@ def get_minimum(df):
     return df[df > 0].min(numeric_only=True).min()
 
 def df_to_image(df, image_path, minimum=None, maximum=None):
+    success = True
     minimum = minimum if minimum is not None else get_minimum(df)
     df = convert_to_diff(df, minimum=minimum)
     real_maximum = df.max().max()
@@ -43,10 +44,12 @@ def df_to_image(df, image_path, minimum=None, maximum=None):
         maximum -= minimum
         if maximum < real_maximum:
             log.warning("input maximum {} is below the real maximum {}".format(maximum, real_maximum))
+            success = False
     else:
         maximum = real_maximum
     log.info('Writing image to {} while splitting the color range between (0, {})'.format(image_path, maximum))
     imsave(image_path, df, cmap=COLOR_MAP, vmin=0, vmax=maximum)
+    return success
 
 def get_chunks_minmax(df_chunks, minimum=None, maximum=None):
     """
@@ -77,14 +80,17 @@ def imagizer(file_path, image_path, chunk_size=None, minimum=None, maximum=None)
     if minimum is not None:
         log.info('Forced minimum value {}'.format(minimum))
     if chunk_size is None:
-        df_to_image(df, image_path, minimum=minimum, maximum=maximum)
+        return df_to_image(df, image_path, minimum=minimum, maximum=maximum)
     else:
         minimum, maximum = get_chunks_minmax(df, minimum=minimum, maximum=maximum)
         log.info('Minimum value is {} and maximum is {}'.format(minimum, maximum))
         df = read_csv(file_path, chunk_size)
+        success = True
         for i, chunk in enumerate(df):
             image_chunk_path = image_path.parent / '{}_{:02}{}'.format(image_path.stem, i, image_path.suffix)
-            df_to_image(chunk, image_chunk_path, minimum=minimum, maximum=maximum)
+            success_chunk = df_to_image(chunk, image_chunk_path, minimum=minimum, maximum=maximum)
+            success = False if (not success or not success_chunk) else True
+        return success
 
 def verify_args(args):
     if not args.file_path.is_file():
@@ -107,7 +113,9 @@ def main(args):
     init_logging(args.log_path)
     file_path = args.file_path
     image_path = args.image_path if args.image_path else file_path.parent / (file_path.stem + '.png')
-    imagizer(file_path, image_path, chunk_size=args.chunk_size, minimum=args.minimum, maximum=args.maximum)
+    success = imagizer(file_path, image_path, chunk_size=args.chunk_size, minimum=args.minimum, maximum=args.maximum)
+    if not success:
+        sys.exit(1)
 
 
 if __name__ == '__main__':
@@ -128,3 +136,4 @@ if __name__ == '__main__':
         main(args)
     except Exception:
         log.exception('An exception was raised:')
+        sys.exit(2)
