@@ -7,8 +7,6 @@ import numpy as np
 import pandas as pd
 
 
-MAX_DIFF = 5.0
-# MAX_DIFF = 2000
 COLOR_MAP = 'RdYlGn'
 VALID_IMAGE_SUFFIXES = ('.png', '.jpg')
 
@@ -37,14 +35,16 @@ def get_minimum(df):
     return df[df > 0].min(numeric_only=True).min()
 
 def df_to_image(df, image_path, minimum=None, maximum=None):
-    print('min={}, max={}'.format(minimum, maximum))
     minimum = minimum if minimum is not None else get_minimum(df)
     df = convert_to_diff(df, minimum=minimum)
+    real_maximum = df.max().max()
     if maximum is not None:
         # Convert the maximum to "diff"
         maximum -= minimum
+        if maximum < real_maximum:
+            log.warning("input maximum {} is below the real maximum {}".format(maximum, real_maximum))
     else:
-        maximum = df.max().max()
+        maximum = real_maximum
     log.info('Writing image to {} while splitting the color range between (0, {})'.format(image_path, maximum))
     imsave(image_path, df, cmap=COLOR_MAP, vmin=0, vmax=maximum)
 
