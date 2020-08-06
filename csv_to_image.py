@@ -8,7 +8,8 @@ import numpy as np
 import pandas as pd
 
 
-COLOR_MAP = 'RdYlGn'
+# COLOR_MAP = 'RdYlGn'
+COLOR_MAP = 'BuPu'
 VALID_IMAGE_SUFFIXES = ('.png', '.jpg')
 DTYPE = np.float32
 
