@@ -9,6 +9,7 @@ import pandas as pd
 
 
 # COLOR_MAP = 'RdYlGn'
+# COLOR_MAP = 'YlGnBu'
 COLOR_MAP = 'BuPu'
 VALID_IMAGE_SUFFIXES = ('.png', '.jpg')
 DTYPE = np.float32
@@ -57,20 +58,50 @@ def get_minimum(df):
     """
     return df[df > 0].min(numeric_only=True).min()
 
+# def impose_edge_values_limit(df, minimum, maximum):
+#     """
+#     Imposes a limit on df's values by input minimum and maximum.
+#     All negative values or values lower than minimum become NaN (transparent in the final image)
+#     All values larger than maximum become become NaN (transparent in the final image)
+#     """
+#     is_success = True
+#     real_minimum = get_minimum(df)
+#     if minimum:
+#         # Reset all values below input minimum
+#         df[df < minimum] = np.nan
+#         if real_minimum < minimum:
+#             log.warning('Input minimum {} is larger than the real minimum {}'.format(minimum, real_minimum))
+#             is_success = False
+#     else:
+#         # Reset negative values to 0
+#         df[df < 0] = np.nan
+#         minimum = real_minimum
+#     real_maximum = df.max().max()
+#     if maximum:
+#         # Reset all values above input maximum
+#         df[df > maximum] = np.nan
+#         if real_maximum > maximum:
+#             log.warning("Input maximum {} is lower than the real maximum {}".format(maximum, real_maximum))
+#             is_success = False
+#     else:
+#         maximum = real_maximum
+#     return is_success, minimum, maximum
+
 def impose_edge_values_limit(df, minimum, maximum):
     """
     Imposes a limit on df's values by input minimum and maximum.
     All negative values or values lower than minimum become NaN (transparent in the final image)
     All values larger than maximum become become NaN (transparent in the final image)
     """
-    is_success = True
+    below_min_df, above_max_df = None, None
     real_minimum = get_minimum(df)
     if minimum:
-        # Reset all values below input minimum
-        df[df < minimum] = np.nan
         if real_minimum < minimum:
             log.warning('Input minimum {} is larger than the real minimum {}'.format(minimum, real_minimum))
-            is_success = False
+            # Reset all values below input minimum
+            # below_min_df = df[(df < minimum) & (df > 0)]
+            below_min_df = df[df < minimum]
+            df[df < minimum] = np.nan
     else:
         # Reset negative values to 0
         df[df < 0] = np.nan
@@ -78,19 +109,33 @@ def impose_edge_values_limit(df, minimum, maximum):
     real_maximum = df.max().max()
     if maximum:
         # Reset all values above input maximum
-        df[df > maximum] = np.nan
         if real_maximum > maximum:
             log.warning("Input maximum {} is lower than the real maximum {}".format(maximum, real_maximum))
-            is_success = False
+            above_max_df = df[df > maximum]
+            df[df > maximum] = np.nan
     else:
         maximum = real_maximum
-    return is_success, minimum, maximum
+    return below_min_df, above_max_df, minimum, maximum
 
 def df_to_image(df, image_path, minimum=None, maximum=None):
-    is_success, minimum, maximum = impose_edge_values_limit(df, minimum, maximum)
+    below_min_df, above_max_df, minimum, maximum = impose_edge_values_limit(df, minimum, maximum)
     log.info('Writing image to {} while splitting the color range between ({}, {})'.format(image_path, minimum, maximum))
     imsave(image_path, df, cmap=COLOR_MAP, vmin=minimum, vmax=maximum)
-    return is_success
+    if below_min_df is not None or above_max_df is not None:
+        if below_min_df is not None and above_max_df is not None:
+            below_min_df.add(above_max_df, fill_value=0)
+            diff_df = below_min_df
+        elif below_min_df is not None:
+            diff_df = below_min_df
+        else:
+            diff_df = above_max_df
+        del above_max_df, below_min_df
+        invalid_image_path = image_path.parent / (image_path.stem + '_invalid' + image_path.suffix)
+        log.warning('Saving invalid values to {}'.format(invalid_image_path))
+        import pdb; pdb.set_trace()
+        imsave(invalid_image_path, diff_df, cmap='Reds')
+        return False
+    return True
 
 def get_chunks_mean(df_chunks):
     if isinstance(df_chunks, pd.DataFrame):
@@ -130,9 +175,9 @@ def calculate_minmax_values(df, minimum=None, maximum=None, mean_lower_diff=None
     msg = ''
     if maximum or maximum:
         minimum, maximum = get_chunks_minmax(df, minimum=minimum, maximum=maximum)
-    else:
+    elif (mean_lower_diff or mean_upper_diff):
         mean = get_chunks_mean(df)
-        msg += 'The mean is {}'.format(mean)
+        msg += 'The mean is {}. '.format(mean)
         if mean_lower_diff:
             minimum = mean - mean_lower_diff
         if mean_upper_diff:
