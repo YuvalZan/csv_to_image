@@ -36,29 +36,54 @@ def get_minimum(df):
     return df[df > 0].min(numeric_only=True).min()
 
 def df_to_image(df, image_path, minimum=None, maximum=None):
-    success = True
-    minimum = minimum if minimum is not None else get_minimum(df)
-    df = convert_to_diff(df, minimum=minimum)
+    is_success = True
+    real_minimum = get_minimum(df)
+    if minimum:
+        # Reset all values below input minimum to itself
+        df[df < minimum] = minimum
+        if real_minimum < minimum:
+            log.warning('Input minimum {} is larger than the real minimum {}'.format(minimum, real_minimum))
+            is_success = False
+    else:
+        minimum = real_minimum
+        # Reset negative values to 0
+        df[df < 0] = 0
     real_maximum = df.max().max()
-    if maximum is not None:
-        # Convert the maximum to "diff"
-        maximum -= minimum
-        if maximum < real_maximum:
-            log.warning("input maximum {} is below the real maximum {}".format(maximum, real_maximum))
-            success = False
+    if maximum:
+        # Reset all values above input maximum to itself
+        df[df > maximum] = maximum
+        if real_maximum > maximum:
+            log.warning("Input maximum {} is lower than the real maximum {}".format(maximum, real_maximum))
+            is_success = False
     else:
         maximum = real_maximum
-    log.info('Writing image to {} while splitting the color range between (0, {})'.format(image_path, maximum))
-    imsave(image_path, df, cmap=COLOR_MAP, vmin=0, vmax=maximum)
-    return success
+    log.info('Writing image to {} while splitting the color range between ({}, {})'.format(image_path, minimum, maximum))
+    imsave(image_path, df, cmap=COLOR_MAP, vmin=minimum, vmax=maximum)
+    return is_success
+
+
+# def df_to_image(df, image_path, minimum=None, maximum=None):
+#     success = True
+#     minimum = minimum if minimum is not None else get_minimum(df)
+#     df = convert_to_diff(df, minimum=minimum)
+#     real_maximum = df.max().max()
+#     if maximum is not None:
+#         # Convert the maximum to "diff"
+#         maximum -= minimum
+#         if maximum < real_maximum:
+#             log.warning("input maximum {} is below the real maximum {}".format(maximum, real_maximum))
+#             success = False
+#     else:
+#         maximum = real_maximum
+#     log.info('Writing image to {} while splitting the color range between (0, {})'.format(image_path, maximum))
+#     imsave(image_path, df, cmap=COLOR_MAP, vmin=0, vmax=maximum)
+#     return success
 
 def get_chunks_minmax(df_chunks, minimum=None, maximum=None):
     """
     Calculated the min/max values if wasn't given them.
-    Will "useup" the df_chunks iterator if the calculation where necessary
+    Will "use-up" the df_chunks iterator
     """
-    if minimum is not None and maximum is not None:
-        return minimum, maximum
     cacl_min, cacl_max = False, False
     if minimum is None:
         minimum = sys.maxsize
@@ -80,12 +105,17 @@ def imagizer(file_path, image_path, chunk_size=None, minimum=None, maximum=None)
     df = read_csv(file_path, chunk_size)
     if minimum is not None:
         log.info('Forced minimum value {}'.format(minimum))
+    if maximum is not None:
+        log.info('Forced maximum value {}'.format(minimum))
     if chunk_size is None:
         return df_to_image(df, image_path, minimum=minimum, maximum=maximum)
     else:
-        minimum, maximum = get_chunks_minmax(df, minimum=minimum, maximum=maximum)
-        log.info('Minimum value is {} and maximum is {}'.format(minimum, maximum))
-        df = read_csv(file_path, chunk_size)
+        if minimum is not None or maximum is not None:
+            minimum, maximum = get_chunks_minmax(df, minimum=minimum, maximum=maximum)
+            log.info('Calculated minimum and maximum are {}, {} respectively'.format(minimum, maximum))
+            df = read_csv(file_path, chunk_size)
+        else:
+            log.info('input minimum and maximum are {}, {} respectively'.format(minimum, maximum))
         success = True
         for i, chunk in enumerate(df):
             image_chunk_path = image_path.parent / '{}_{:02}{}'.format(image_path.stem, i, image_path.suffix)
