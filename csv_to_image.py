@@ -2,6 +2,7 @@ import sys
 import argparse
 from pathlib import Path
 import logging
+from collections import abc
 from matplotlib.pylab import imsave
 import numpy as np
 import pandas as pd
@@ -14,13 +15,39 @@ DTYPE = np.float32
 log = logging.getLogger(__name__)
 
 
-def read_csv(file_path, chunk_size=None):
+class ResetableTextFileReader(abc.Iterator):
+    def __init__(self, text_file_reader, reset_func, *func_args, **func_kwargs):
+        self._text_file_reader = text_file_reader
+        self._reset_func = reset_func
+        self._func_args = func_args
+        self._func_kwargs = func_kwargs
+
+    def __next__(self):
+        return next(self._text_file_reader)
+
+    def reset(self):
+        self._text_file_reader.close()
+        self._text_file_reader = self._reset_func(*self._func_args, **self._func_kwargs)
+
+    def close(self):
+        return self._text_file_reader.close()
+
+    def read(self, nrows=None):
+        return self._text_file_reader.read(nrows=nrows)
+
+    def get_chunk(self, size=None):
+        return self._text_file_reader.get_chunk(size=size)
+
+
+def read_csv(file_path, chunksize=None):
     log.info('Reading file {}'.format(file_path))
-    df = pd.read_csv(file_path, dtype=DTYPE, index_col=0, engine='python', chunksize=chunk_size)
-    if chunk_size is None:
+    read_csv_kwargs = {'dtype': DTYPE, 'index_col': 0, 'engine': 'python', 'chunksize': chunksize}
+    df = pd.read_csv(file_path, **read_csv_kwargs)
+    if chunksize is None:
         log.info('Successful read {}X{} table'.format(df.columns.size, df.index.size))
     else:
-        log.info('Reading file in chunks of {}'.format(chunk_size))
+        log.info('Reading file in chunks of {}'.format(chunksize))
+        df = ResetableTextFileReader(df, pd.read_csv, file_path, **read_csv_kwargs)
     return df
 
 def get_minimum(df):
@@ -33,7 +60,7 @@ def impose_edge_values_limit(df, minimum, maximum):
     """
     Imposes a limit on df's values by input minimum and maximum.
     All negative values or values lower than minimum become NaN (transparent in the final image)
-    All values larger than maximum become maximum
+    All values larger than maximum become become NaN (transparent in the final image)
     """
     is_success = True
     real_minimum = get_minimum(df)
@@ -49,8 +76,8 @@ def impose_edge_values_limit(df, minimum, maximum):
         minimum = real_minimum
     real_maximum = df.max().max()
     if maximum:
-        # Reset all values above input maximum to itself
-        df[df > maximum] = maximum
+        # Reset all values above input maximum
+        df[df > maximum] = np.nan
         if real_maximum > maximum:
             log.warning("Input maximum {} is lower than the real maximum {}".format(maximum, real_maximum))
             is_success = False
@@ -64,11 +91,24 @@ def df_to_image(df, image_path, minimum=None, maximum=None):
     imsave(image_path, df, cmap=COLOR_MAP, vmin=minimum, vmax=maximum)
     return is_success
 
+def get_chunks_mean(df_chunks):
+    if isinstance(df_chunks, pd.DataFrame):
+        # df_chunks is not separated into chunks
+        return df_chunks.mean().mean()
+    mean_generator = (chunk.mean().mean() for chunk in df_chunks)
+    mean = pd.Series(mean_generator).mean()
+    df_chunks.reset()
+    return mean
+
 def get_chunks_minmax(df_chunks, minimum=None, maximum=None):
     """
     Calculated the min/max values if wasn't given them.
-    Will "use-up" the df_chunks iterator
     """
+    if minimum is not None and maximum is not None:
+        return minimum, maximum
+    if isinstance(df_chunks, pd.DataFrame):
+        # df_chunks is not separated into chunks
+        return minimum, maximum
     cacl_min, cacl_max = False, False
     if minimum is None:
         minimum = sys.maxsize
@@ -81,26 +121,39 @@ def get_chunks_minmax(df_chunks, minimum=None, maximum=None):
             minimum = min(minimum, get_minimum(chunk))
         if cacl_max:
             maximum = max(maximum, chunk.max().max())
+    df_chunks.reset()
     return minimum, maximum
 
-def imagizer(file_path, image_path, chunk_size=None, minimum=None, maximum=None):
+
+def calculate_minmax_values(df, minimum=None, maximum=None, mean_lower_diff=None, mean_upper_diff=None):
+    msg = ''
+    if maximum or maximum:
+        minimum, maximum = get_chunks_minmax(df, minimum=minimum, maximum=maximum)
+    else:
+        mean = get_chunks_mean(df)
+        msg += 'The mean is {}'.format(mean)
+        if mean_lower_diff:
+            minimum = mean - mean_lower_diff
+        if mean_upper_diff:
+            maximum = mean + mean_upper_diff
+    if minimum:
+        msg += "Minimum is {}. ".format(minimum)
+    if maximum:
+        msg += "Maximum is {}.".format(maximum)
+    if msg:
+        log.info(msg)
+    return minimum, maximum
+
+def imagizer(file_path, image_path, chunksize=None, minimum=None, maximum=None, mean_lower_diff=None, mean_upper_diff=None):
     """
     Turns a csv file into an image or multiple images
     """
-    df = read_csv(file_path, chunk_size)
-    if minimum is not None:
-        log.info('Forced minimum value {}'.format(minimum))
-    if maximum is not None:
-        log.info('Forced maximum value {}'.format(maximum))
-    if chunk_size is None:
+    df = read_csv(file_path, chunksize)
+    minimum, maximum = calculate_minmax_values(df, minimum=minimum, maximum=maximum,
+                                               mean_lower_diff=mean_lower_diff, mean_upper_diff=mean_upper_diff)
+    if chunksize is None:
         return df_to_image(df, image_path, minimum=minimum, maximum=maximum)
     else:
-        if minimum is not None or maximum is not None:
-            minimum, maximum = get_chunks_minmax(df, minimum=minimum, maximum=maximum)
-            log.info('Calculated minimum and maximum are {}, {} respectively'.format(minimum, maximum))
-            df = read_csv(file_path, chunk_size)
-        else:
-            log.info('input minimum and maximum are {}, {} respectively'.format(minimum, maximum))
         success = True
         for i, chunk in enumerate(df):
             image_chunk_path = image_path.parent / '{}_{:02}{}'.format(image_path.stem, i, image_path.suffix)
@@ -119,6 +172,8 @@ def verify_args(args):
             raise ValueError("Invalid log_path! Must be a valid file path")
     if args.image_path and args.image_path.suffix not in VALID_IMAGE_SUFFIXES:
         raise ValueError("Invalid image_path! Must be in {}".format(VALID_IMAGE_SUFFIXES))
+    if (args.maximum or args.maximum) and (args.mean_lower_diff or args.mean_upper_diff):
+        raise ValueError("Must not use both hard min/max limitations and mead diff limitations")
 
 def init_logging(log_path=None):
     logging.basicConfig(filename=log_path, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -129,7 +184,8 @@ def main(args):
     init_logging(args.log_path)
     file_path = args.file_path
     image_path = args.image_path if args.image_path else file_path.parent / (file_path.stem + '.png')
-    success = imagizer(file_path, image_path, chunk_size=args.chunk_size, minimum=args.minimum, maximum=args.maximum)
+    success = imagizer(file_path, image_path, chunksize=args.chunksize, 
+        minimum=args.minimum, maximum=args.maximum, mean_lower_diff=args.mean_lower_diff, mean_upper_diff=args.mean_upper_diff)
     if not success:
         sys.exit(1)
 
@@ -138,9 +194,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Turns CSV files into images')
     parser.add_argument('file_path', type=Path, help='A path to a csv file')
     parser.add_argument('--image-path', '-o', type=Path, help='An optional path to the resulting image. If omitted will generate a path from the input path with a different suffix')
-    parser.add_argument('--chunk-size', '-c', type=int, help='Separate the resulting image to chunks')
-    parser.add_argument('--minimum', '-m', type=int, help='Set a hard minimum value and zero all values below it')
-    parser.add_argument('--maximum', '-x', type=int, help='Set a hard maximum value and flatten all values above it to itself')
+    parser.add_argument('--chunksize', '-c', type=int, help='Separate the resulting image to chunks')
+    parser.add_argument('--minimum', '-m', type=float, help='Set a hard minimum value')
+    parser.add_argument('--maximum', '-x', type=float, help='Set a hard maximum value')
+    parser.add_argument('--mean-lower-diff', '-ml', type=float, help='Subtract this value from the mean (average) and set it as a minimum value')
+    parser.add_argument('--mean-upper-diff', '-mu', type=float, help='Add this value to the mean (average) and set it as a maximum value')
     parser.add_argument('--log-path', '-l', type=Path, help='Save the log to a file instead of stdout')
     try:
         args = parser.parse_args()
