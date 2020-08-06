@@ -9,13 +9,14 @@ import pandas as pd
 
 COLOR_MAP = 'RdYlGn'
 VALID_IMAGE_SUFFIXES = ('.png', '.jpg')
+DTYPE = np.float32
 
 log = logging.getLogger(__name__)
 
 
 def read_csv(file_path, chunk_size=None):
     log.info('Reading file {}'.format(file_path))
-    df = pd.read_csv(file_path, header=None, dtype=np.float32, float_precision='high', chunksize=chunk_size)
+    df = pd.read_csv(file_path, dtype=DTYPE, index_col=0, engine='python', chunksize=chunk_size)
     if chunk_size is None:
         log.info('Successful read {}X{} table'.format(df.columns.size, df.index.size))
     else:
