@@ -23,31 +23,30 @@ def read_csv(file_path, chunk_size=None):
         log.info('Reading file in chunks of {}'.format(chunk_size))
     return df
 
-def convert_to_diff(df, minimum):
-    df -= minimum
-    # Remove negative values
-    df[df < 0] = 0
-    return df
-
 def get_minimum(df):
     """
     Get the minimum value out of the positive values
     """
     return df[df > 0].min(numeric_only=True).min()
 
-def df_to_image(df, image_path, minimum=None, maximum=None):
+def impose_edge_values_limit(df, minimum, maximum):
+    """
+    Imposes a limit on df's values by input minimum and maximum.
+    All negative values or values lower than minimum become NaN (transparent in the final image)
+    All values larger than maximum become maximum
+    """
     is_success = True
     real_minimum = get_minimum(df)
     if minimum:
-        # Reset all values below input minimum to itself
-        df[df < minimum] = minimum
+        # Reset all values below input minimum
+        df[df < minimum] = np.nan
         if real_minimum < minimum:
             log.warning('Input minimum {} is larger than the real minimum {}'.format(minimum, real_minimum))
             is_success = False
     else:
-        minimum = real_minimum
         # Reset negative values to 0
-        df[df < 0] = 0
+        df[df < 0] = np.nan
+        minimum = real_minimum
     real_maximum = df.max().max()
     if maximum:
         # Reset all values above input maximum to itself
@@ -57,27 +56,13 @@ def df_to_image(df, image_path, minimum=None, maximum=None):
             is_success = False
     else:
         maximum = real_maximum
+    return is_success, minimum, maximum
+
+def df_to_image(df, image_path, minimum=None, maximum=None):
+    is_success, minimum, maximum = impose_edge_values_limit(df, minimum, maximum)
     log.info('Writing image to {} while splitting the color range between ({}, {})'.format(image_path, minimum, maximum))
     imsave(image_path, df, cmap=COLOR_MAP, vmin=minimum, vmax=maximum)
     return is_success
-
-
-# def df_to_image(df, image_path, minimum=None, maximum=None):
-#     success = True
-#     minimum = minimum if minimum is not None else get_minimum(df)
-#     df = convert_to_diff(df, minimum=minimum)
-#     real_maximum = df.max().max()
-#     if maximum is not None:
-#         # Convert the maximum to "diff"
-#         maximum -= minimum
-#         if maximum < real_maximum:
-#             log.warning("input maximum {} is below the real maximum {}".format(maximum, real_maximum))
-#             success = False
-#     else:
-#         maximum = real_maximum
-#     log.info('Writing image to {} while splitting the color range between (0, {})'.format(image_path, maximum))
-#     imsave(image_path, df, cmap=COLOR_MAP, vmin=0, vmax=maximum)
-#     return success
 
 def get_chunks_minmax(df_chunks, minimum=None, maximum=None):
     """
@@ -106,7 +91,7 @@ def imagizer(file_path, image_path, chunk_size=None, minimum=None, maximum=None)
     if minimum is not None:
         log.info('Forced minimum value {}'.format(minimum))
     if maximum is not None:
-        log.info('Forced maximum value {}'.format(minimum))
+        log.info('Forced maximum value {}'.format(maximum))
     if chunk_size is None:
         return df_to_image(df, image_path, minimum=minimum, maximum=maximum)
     else:
