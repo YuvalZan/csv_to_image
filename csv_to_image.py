@@ -11,7 +11,8 @@ import pandas as pd
 # COLOR_MAP = 'RdYlGn'
 COLOR_MAP = 'BuPu'
 VALID_IMAGE_SUFFIXES = ('.png', '.jpg')
-DTYPE = np.float32
+DTYPE = np.float64
+# DTYPE = np.float32
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ class ResetableTextFileReader(abc.Iterator):
 def read_csv(file_path, chunksize=None):
     log.info('Reading file {}'.format(file_path))
     read_csv_kwargs = {'dtype': DTYPE, 'index_col': 0, 'engine': 'python', 'chunksize': chunksize}
+    # read_csv_kwargs = {'index_col': 0, 'engine': 'python', 'chunksize': chunksize}
     df = pd.read_csv(file_path, **read_csv_kwargs)
     if chunksize is None:
         log.info('Successful read {}X{} table'.format(df.columns.size, df.index.size))
@@ -55,7 +57,8 @@ def get_minimum(df):
     """
     Get the minimum value out of the positive values
     """
-    return df[df > 0].min(numeric_only=True).min()
+    # return df[df > 0].min(numeric_only=True).min()
+    return df.min(numeric_only=True).min()
 
 def impose_edge_values_limit(df, minimum, maximum):
     """
@@ -72,8 +75,8 @@ def impose_edge_values_limit(df, minimum, maximum):
             log.warning('Input minimum {} is larger than the real minimum {}'.format(minimum, real_minimum))
             is_success = False
     else:
-        # Reset negative values to 0
-        df[df < 0] = np.nan
+        # # Reset negative values to 0
+        # df[df < 0] = np.nan
         minimum = real_minimum
     real_maximum = df.max().max()
     if maximum:
@@ -130,7 +133,7 @@ def calculate_minmax_values(df, minimum=None, maximum=None, mean_lower_diff=None
     msg = ''
     if maximum or maximum:
         minimum, maximum = get_chunks_minmax(df, minimum=minimum, maximum=maximum)
-    else:
+    elif mean_lower_diff or mean_upper_diff:
         mean = get_chunks_mean(df)
         msg += 'The mean is {}'.format(mean)
         if mean_lower_diff:
