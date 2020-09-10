@@ -96,35 +96,6 @@ def impose_edge_values_limit(df, minimum, maximum, reverse=False):
         maximum = real_maximum
     if minimum and maximum and reverse:
         df[(df >= minimum) & (df <= maximum)] = np.nan
-
-    # if reverse:
-    #     if minimum and maximum:
-    #         df[(df >= minimum) & (df <= maximum)] = np.nan
-    #     elif minimum:
-    #         df[df >= minimum] = np.nan
-    #     elif maximum:
-    #         df[df >= maximum] = np.nan
-    # else:
-    #     if minimum:
-    #         # Reset all values below input minimum
-    #         df[df < minimum] = np.nan
-    #         if real_minimum < minimum:
-    #             log.warning('Input minimum {} is larger than the real minimum {}'.format(minimum, real_minimum))
-    #             is_success = False
-    #     else:
-    #         # # Reset negative values to 0
-    #         # df[df < 0] = np.nan
-    #         minimum = real_minimum
-    #     real_maximum = df.max().max()
-    #     if maximum:
-    #         # Reset all values above input maximum
-    #         df[df > maximum] = np.nan
-
-    #         if real_maximum > maximum:
-    #             log.warning("Input maximum {} is lower than the real maximum {}".format(maximum, real_maximum))
-    #             is_success = False
-    #     else:
-    #         maximum = real_maximum
     return is_success, minimum, maximum
 
 def df_to_image(df, image_path, minimum=None, maximum=None, reverse=False):
