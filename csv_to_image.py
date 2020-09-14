@@ -15,7 +15,7 @@ DTYPE = np.float64
 # DTYPE = np.float32
 NAN_VALUES = [0, -2147483648, -2147483647, -2147483646, -2147483645]
 
-log = logging.getLogger(__name__)
+log = logging.getLogger('csv_to_image')
 
 
 class ResetableTextFileReader(abc.Iterator):
@@ -45,7 +45,6 @@ class ResetableTextFileReader(abc.Iterator):
 def read_csv(file_path, chunksize=None):
     log.info('Reading file {}'.format(file_path))
     read_csv_kwargs = {'dtype': DTYPE, 'index_col': 0, 'engine': 'python', 'chunksize': chunksize, 'na_values': NAN_VALUES}
-    # read_csv_kwargs = {'index_col': 0, 'engine': 'python', 'chunksize': chunksize}
     df = pd.read_csv(file_path, **read_csv_kwargs)
     if chunksize is None:
         log.info('Successful read {}X{} table'.format(df.columns.size, df.index.size))
@@ -189,7 +188,7 @@ def verify_args(args):
 
 def init_logging(log_path=None):
     logging.basicConfig(filename=log_path, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    log = logging.getLogger(__name__)
+    log = logging.getLogger('csv_to_image')
     log.setLevel('INFO')
 
 def main(args):
