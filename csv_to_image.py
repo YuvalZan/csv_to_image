@@ -13,6 +13,7 @@ COLOR_MAP = 'RdYlGn'
 VALID_IMAGE_SUFFIXES = ('.png', '.jpg')
 DTYPE = np.float64
 # DTYPE = np.float32
+NAN_VALUES = [0, -2147483648, -2147483647, -2147483646, -2147483645]
 
 log = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ class ResetableTextFileReader(abc.Iterator):
 
 def read_csv(file_path, chunksize=None):
     log.info('Reading file {}'.format(file_path))
-    read_csv_kwargs = {'dtype': DTYPE, 'index_col': 0, 'engine': 'python', 'chunksize': chunksize}
+    read_csv_kwargs = {'dtype': DTYPE, 'index_col': 0, 'engine': 'python', 'chunksize': chunksize, 'na_values': NAN_VALUES}
     # read_csv_kwargs = {'index_col': 0, 'engine': 'python', 'chunksize': chunksize}
     df = pd.read_csv(file_path, **read_csv_kwargs)
     if chunksize is None:
@@ -80,8 +81,6 @@ def impose_edge_values_limit(df, minimum, maximum, reverse=False):
             log.warning('Input minimum {} is larger than the real minimum {}'.format(minimum, real_minimum))
             is_success = False
     else:
-        # # Reset negative values to 0
-        # df[df < 0] = np.nan
         minimum = real_minimum
     if maximum:
         if reverse:
