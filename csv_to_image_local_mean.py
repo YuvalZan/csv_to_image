@@ -32,31 +32,63 @@ MAX_DIFFPOINTS = len(COLORS_LOWER)
 log = logging.getLogger('csv_to_image')
 
 
-def bluntify_by_local(df, diffpoints, local_area=None):
+def bluntify_by_local(df, diffpoints, local_area=None, area_multiplier=None):
     """
     
     :param df: The dataframe to work on
-    :param local_area: A (index, column) tuple indicating the size of the local area
     :param diffpoints: A sorted by "diff" iterable of (diff, color_lower, color_greater) to compare to the mean.
                        Each of the df's cells' value in the range between two diffs from the mean will be changed
                        to the appropriate color (from the lower diffpoint).
                        All values closer than the smallest diffpoint will be changed to np.NAN
+    :param local_area: A (index, column) tuple indicating the size of the local area.
+                       If not given uses the entire df as the area
+    :param area_multiplier: An optional multiplier to increase the area just for mean calculation
     """
     msg = "Bluntifying with diffpoints {}".format(diffpoints)
     if local_area:
         msg += " and a local area of {}".format(local_area)
+    if area_multiplier:
+        msg += " and a area multiplier of {}".format(area_multiplier)
     log.info(msg)
     if local_area:
+        df_cpy = df.copy()
         index, columns = df.shape
         for index_i in range(0, index, local_area[0]):
             for column_i in range(0, columns, local_area[1]):
                 local_df = df.iloc[index_i:(index_i + local_area[0]), column_i:(column_i + local_area[1])]
-                bluntify(local_df, diffpoints)
+                mean=None
+                if area_multiplier is not None:
+                    mean = calc_large_area_mean(df_cpy, local_area, index_i, column_i, area_multiplier)
+                bluntify(local_df, diffpoints, mean)
+        del df_cpy
     else:
         mean = bluntify(df, diffpoints)
         log.info("Old mean was {}".format(mean))
 
-def bluntify(df, diffpoints):
+def calc_large_area_mean(df, local_area, index, column, area_multiplier):
+    """
+    Calculate the mean in a local_area stating from (index, column) that was mad larger by area_multiplier
+    :param df: The dataframe to work on
+    :param local_area: A (index, column) tuple indicating the size of the local area.
+                       If not given uses the entire df as the area
+    :param index: Start calculation from this index
+    :param column: Start calculation from this column
+    :param area_multiplier: An optional multiplier to increase the area just for mean calculation
+    """
+    if local_area is None:
+        return df.mean().mean()
+    index_diff = int((local_area[0] * area_multiplier) - local_area[0])
+    column_diff = int((local_area[1] * area_multiplier) - local_area[1])
+    large_index_start = index - index_diff
+    large_index_start = large_index_start if large_index_start > 0 else 0
+    large_index_end = index + local_area[0] + index_diff
+    large_column_start = column - column_diff
+    large_column_start = large_column_start if large_column_start > 0 else 0
+    large_column_end = column + local_area[1] + column_diff
+    df_large = df.iloc[large_index_start:large_index_end, large_column_start:large_column_end]
+    return df_large.mean().mean()
+
+def bluntify(df, diffpoints, mean=None):
     """
     
     :param df: The dataframe to work on
@@ -64,9 +96,10 @@ def bluntify(df, diffpoints):
                        Each of the df's cells' value in the range between two diffs from the mean will be changed
                        to the appropriate color (from the lower diffpoint).
                        All values closer than the smallest diffpoint will be changed to np.NAN
+    :param mean: An optional custom mean. If not given will generate one instead
     """
     # Generate points by diffing the mean from each diffpoint
-    mean = df.mean().mean()
+    mean = mean if mean is not None else df.mean().mean()
     lower_values = []
     greater_values = []
     for d in diffpoints:
@@ -124,8 +157,9 @@ def local_area(string):
 def main(args):
     init_logging(args.log_path)
     df = read_csv(args.file_path, chunksize=None)
-    bluntify_by_local(df, local_area=args.local_area, diffpoints=args.diffpoint)
-    image_path = args.image_path if args.image_path else args.file_path.parent / (args.file_path.stem + "_local_mean" + '.png')
+    bluntify_by_local(df, local_area=args.local_area, diffpoints=args.diffpoint, area_multiplier=args.area_multiplier)
+    image_path_uniqe = "_local_mean" if args.local_area is not None else "_global_mean"
+    image_path = args.image_path if args.image_path else args.file_path.parent / (args.file_path.stem + image_path_uniqe + '.png')
     df_to_image(df, image_path)
 
 
@@ -134,10 +168,12 @@ if __name__ == '__main__':
     parser.add_argument('file_path', type=Path, help='A path to a csv file')
     parser.add_argument('--image-path', '-o', type=Path, help='An optional path to the resulting image. If omitted will generate a path from the input path with a different suffix')
     parser.add_argument('--log-path', '-l', type=Path, help='Save the log to a file instead of stdout')
-    parser.add_argument('--diffpoint', '-d', type=int, action='append', help='Add diffpoint to color by.'
+    parser.add_argument('--diffpoint', '-d', type=float, action='append', help='Add diffpoint to color by.'
                             ' Use multiple times (up to {}) in order to specify multiple colors'.format(MAX_DIFFPOINTS))
     parser.add_argument('--local-area', '-s', type=local_area, help='An (index, column) to indicate the local size.'
                             ' Use 2 numbers separated by a coma')
+    parser.add_argument('--area-multiplier', '-m', type=float, help='An multiplier to increase the local area just for mean calculation.'
+                                                                    ' Does nothing if local-area is not given')
     try:
         args = parser.parse_args()
         verify_args(args)
