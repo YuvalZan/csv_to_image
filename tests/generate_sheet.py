@@ -3,8 +3,8 @@ import numpy as np
 import pandas as pd
 
 DTYPE = np.float16
-ROWS = 2500
-COLUMNS = 2500
+ROWS = 5000
+COLUMNS = 3200
 BASE_VALUE = 20
 MAX_DIFF = 0.3
 
